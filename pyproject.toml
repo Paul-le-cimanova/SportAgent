@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sportagent"
+version = "0.1.0"
+description = "SportAgent: Multi-Agent LLM framework for Kalshi sports markets"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-core>=0.3.81",
+    "langchain-anthropic>=0.3.15",
+    "langchain-openai>=0.3.23",
+    "langgraph>=0.4.8",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "pydantic>=2.0.0",
+    "requests>=2.32.4",
+    "cryptography>=42.0.0",
+    "python-dotenv>=1.0.0",
+    "typer>=0.21.0",
+    "rich>=14.0.0",
+    "questionary>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+sportagent = "sportagent.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["sportagent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -1,0 +1,1 @@
+"""Per-sport adapter packs (nba, nfl, mlb, soccer)."""

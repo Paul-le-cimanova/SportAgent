@@ -1,0 +1,1 @@
+"""Manager factories: research manager (judge) and decision manager (final)."""

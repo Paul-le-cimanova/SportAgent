@@ -1,0 +1,1 @@
+"""Trader factory: converts the edge thesis into a concrete position."""

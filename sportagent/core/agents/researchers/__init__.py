@@ -1,0 +1,1 @@
+"""Phase II researcher factories: bull (YES case) and bear (NO case)."""

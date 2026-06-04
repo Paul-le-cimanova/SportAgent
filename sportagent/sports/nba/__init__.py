@@ -1,0 +1,1 @@
+"""NBA adapter pack: market resolver, stats sourcing, key-factor hints."""
