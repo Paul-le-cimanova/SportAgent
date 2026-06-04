@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sportagent"
-version = "0.1.0"
+version = "0.1.1"
 description = "SportAgent: Multi-Agent LLM framework for Kalshi sports markets"
 readme = "README.md"
 requires-python = ">=3.10"

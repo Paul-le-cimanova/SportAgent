@@ -1,40 +1,76 @@
-# SportAgent
+<div align="center">
 
-**SportAgent** is a multi-agent LLM application that produces explainable, **winner-first** predictions for NBA games — *"🏀 PREDICTION: New York Knicks win — 64%"* — by debating real data the way a desk of analysts would. It cross-checks the [Kalshi](https://kalshi.com) sports market price against a de-vigged sportsbook consensus, then runs a team of specialized agents (odds, stats, news/injury, sentiment, a bull/bear research debate, and a risk committee) to estimate the true win probability.
+# SportAgent: Multi-Agent LLM Sports Prediction Framework
 
-It is inspired by — but does **not** import from — [TradingAgents](https://github.com/TauricResearch/TradingAgents). SportAgent is a brand-new, sport-agnostic codebase (`core/` + per-sport `sports/<sport>/` adapters), shipping with an NBA adapter first.
+</div>
 
-> ⚠️ **Analysis only. Not financial advice.** v1 is read-only — it never places orders. Predictions are probabilistic and for informational/educational use. Do your own research.
+<div align="center">
+
+⚡ [Installation & CLI](#installation-and-cli) | 📦 [Package Usage](#sportagent-package) | 🧠 [Persistence](#persistence-and-memory) | 🔁 [Reproducibility](#reproducibility) | 🤝 [Contributing](#contributing)
+
+</div>
 
 ---
 
-## What it does
+## News
+- **[2026-06] SportAgent v0.1.1** — Kalshi data-correctness fixes: market prices now read the live `*_dollars` fields, and game-winner markets resolve to the **exact game date** you select (no more stale/expired tickers). Default Kalshi environment switched to **prod** (read-only) for real market prices.
+- **[2026-06] SportAgent v0.1.0** — First public release. Winner-first NBA predictions, a schedule-driven game-picker wizard, a live streaming UI, and saved Markdown reports.
 
-A LangGraph pipeline of agents runs in sequence:
+> ⚠️ **SportAgent is designed for research and educational purposes.** Predictions are probabilistic and depend on the chosen models, model temperature, data quality, and other non-deterministic factors. v1 is **read-only** — it never places orders. **This is not financial, investment, or betting advice.**
 
-**Analyst Team** (Odds → Stats → News/Injury → Sentiment) → **Research Team** (Bull ↔ Bear debate → Research Manager) → **Trader** → **Risk Management** (Aggressive / Neutral / Conservative) → **Decision Manager**.
+## SportAgent Framework
 
-- The **primary output** is a game-winner prediction: which team wins, a win probability, a confidence level, and plain-language reasoning.
-- A **secondary "Betting view"** is still computed (Kalshi BUY YES / BUY NO / HOLD, edge vs. market, Kelly-sized stake) but it is not the headline.
-- All quantitative math (implied probability, de-vig, edge, Kelly, Brier) is **deterministic**, never left to the LLM.
-- Every data fetcher **fails open** — a dead source yields a clear placeholder, never a crash.
+SportAgent is a multi-agent prediction framework that mirrors the dynamics of a real sports analysis desk. By deploying specialized LLM-powered agents — from an odds analyst, a stats analyst, a news/injury analyst, and a sentiment expert, to a bull/bear research debate, a trader, and a risk-management committee — the platform collaboratively evaluates a game and produces an explainable, **winner-first** prediction:
 
-## Install
+> 🏀 **PREDICTION: New York Knicks win — 64%** *(San Antonio Spurs 36%)*
 
-Requires Python 3.10+.
+The system cross-checks the [Kalshi](https://kalshi.com) sports-market contract price (the market-implied probability) against a de-vigged sportsbook consensus, treats that verified snapshot as the source of truth for exact prices, and then reasons about the **edge** between the market and its own estimate. All quantitative math (implied probability, vig removal, edge, Kelly sizing, Brier calibration) is **deterministic** — never left to the language model.
 
+The framework is **sport-agnostic** at its core (`core/`), with each sport added as a self-contained adapter under `sports/<sport>/`. NBA ships first.
+
+Our framework decomposes the prediction task into specialized roles.
+
+### Analyst Team
+- **Odds Analyst** — Reads the verified-odds snapshot (Kalshi contract price vs. de-vigged sportsbook consensus), flags any mispricing, and establishes the market-implied probability.
+- **Stats Analyst** — Evaluates team strength: season record, recent form, head-to-head history, and rest / back-to-back status, weighing the factors a desk would price in.
+- **News / Injury Analyst** — Monitors injury reports, lineup changes, and late-breaking availability news that can swing a game's win probability.
+- **Sentiment Analyst** — Aggregates public and community chatter (Reddit / sportsbook discussion) into a single sentiment read, watching for contrarian signals where heavy public money on one side flags value on the other.
+
+### Research Team
+- Comprises a **Bull** and a **Bear** researcher who critically assess the analysts' findings. Through a structured debate, they weigh the case for and against the favored team, and a **Research Manager** (deep-think model) synthesizes the debate into a committed probability estimate.
+
+### Trader
+- Converts the research thesis into a concrete position, using the deterministic probability/Kelly helpers to size a (hypothetical) stake against the verified market price.
+
+### Risk Management and Decision Manager
+- A risk committee of **Aggressive**, **Neutral**, and **Conservative** voices debates the position from every angle.
+- The **Decision Manager** (deep-think model) renders the final, winner-first call: which team wins, the win probability, a confidence level, and plain-language reasoning — with the betting view (BUY YES / BUY NO / HOLD, edge, suggested stake) retained as an optional secondary section.
+
+## Installation and CLI
+
+### Installation
+
+Clone SportAgent:
 ```bash
-git clone https://github.com/<your-username>/SportAgent.git
+git clone https://github.com/Paul-le-cimanova/SportAgent.git
 cd SportAgent
+```
+
+Create a virtual environment in any environment manager you like:
+```bash
+conda create -n sportagent python=3.13
+conda activate sportagent
+```
+
+Install the package and its dependencies (this also installs the `sportagent` command):
+```bash
 pip install -e .
 ```
 
-This installs the `sportagent` console command.
-
-## Configure your keys
+### Configure your keys
 
 ```bash
-sportagent setup        # interactive wizard → writes .env
+sportagent setup          # interactive wizard → writes .env
 sportagent doctor --live  # verify keys + live API pings
 ```
 
@@ -49,43 +85,98 @@ You'll need:
 | `OPENWEB_NINJA_API_KEY` | optional | Injury / lineup news | https://www.openwebninja.com |
 | `OPENAI_API_KEY` | optional | If you prefer GPT models | https://platform.openai.com |
 
-Keys live in a gitignored `.env`. **Never commit your `.env` or your Kalshi `.pem`.**
+Keys live in a gitignored `.env`. **Never commit your `.env` or your Kalshi `.pem`.** Kalshi defaults to **prod** (`KALSHI_ENV=prod`) because v1 is read-only and prod gives real market prices; set `KALSHI_ENV=demo` for the sandbox.
 
-Kalshi defaults to **prod** (`KALSHI_ENV=prod`) because v1 is read-only and prod gives real market prices. Set `KALSHI_ENV=demo` to use the sandbox.
-
-## Usage
-
-### Interactive wizard (recommended)
-
+Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
-sportagent
+cp .env.example .env
 ```
 
-Bare `sportagent` launches a schedule-driven wizard: **pick sport → pick a date (today / tomorrow / upcoming 7 days / a future date) → pick a real game from the schedule → research depth → models.** You never type team names. It then streams the multi-agent run live and saves a full report.
+### CLI Usage
 
-### Power-user one-liner
+Launch the interactive wizard:
+```bash
+sportagent               # bare command → game-picker wizard
+python -m sportagent.cli # alternative: run directly from source
+```
 
+The wizard is **schedule-driven** — you never type team names. You'll pick a sport, then a date (Today / Tomorrow / Upcoming 7 days / a specific future date), then a real game from that day's schedule, then research depth and models. SportAgent then streams the multi-agent run live and saves a full report.
+
+For power users, the one-liner skips the wizard:
 ```bash
 sportagent analyze "Knicks @ Spurs" --game-date 2026-06-05
 ```
 
 Flags: `--game-date YYYY-MM-DD`, `--sport`, `--kalshi-env demo|prod`, `--deep-llm`, `--quick-llm`, `--live/--no-live`, `--save/--no-save`.
 
-## Reports
+### Reports
 
 Each run is saved to `~/.sportagent/results/<matchup>/<date>/`:
-
-- `complete_report.md` — winner headline + every section
-- per-section markdown (odds / stats / news / sentiment / research / trader / decision)
+- `complete_report.md` — the winner headline plus every section
+- per-section Markdown (odds / stats / news / sentiment / research / trader / decision)
 - `full_state.json` — the raw final pipeline state
 
-## How it works (one paragraph)
+## SportAgent Package
 
-A LangGraph `StateGraph` runs the analyst → research → trader → risk → decision pipeline. The Kalshi contract price is the market-implied probability; the system estimates the true probability and reasons about the **edge**. Game identity and a **verified-odds snapshot** (Kalshi price cross-checked against the de-vigged sportsbook consensus) are treated as the source of truth for exact prices, guarding against hallucination. Two LLM tiers are used: a deep model for the Research and Decision Managers, a quick model for everyone else. After a game settles, a Brier-calibration reflection is logged and fed into future runs.
+### Implementation Details
+
+SportAgent is built on LangGraph for flexibility and modularity. A `StateGraph` runs the analyst → research → trader → risk → decision pipeline over a shared game state. Two LLM tiers are used: a **deep** model for the Research and Decision Managers, and a **quick** model for everyone else. It currently supports **Anthropic (Claude)** and **OpenAI (GPT)** providers.
+
+Every data fetcher **fails open** — a dead or rate-limited source returns a clear placeholder string rather than crashing the run.
+
+### Python Usage
+
+To use SportAgent inside your code, import the package and initialize a `SportAgentGraph()`. The `.analyze()` method returns `(final_state, recommendation)`:
+
+```python
+from sportagent.core.graph.sport_graph import SportAgentGraph
+from sportagent.default_config import DEFAULT_CONFIG
+
+graph = SportAgentGraph(config=DEFAULT_CONFIG.copy(), debug=True)
+
+state, recommendation = graph.analyze("Knicks @ Spurs", game_date="2026-06-05")
+print(recommendation)
+```
+
+You can adjust the default configuration to set your own models, debate depth, and more:
+
+```python
+from sportagent.core.graph.sport_graph import SportAgentGraph
+from sportagent.default_config import DEFAULT_CONFIG
+
+config = DEFAULT_CONFIG.copy()
+config["llm_provider"] = "anthropic"                       # "anthropic" or "openai"
+config["deep_think_llm"] = "claude-opus-4-8"               # managers
+config["quick_think_llm"] = "claude-haiku-4-5-20251001"    # analysts / researchers / trader / risk
+config["max_debate_rounds"] = 2
+config["max_risk_rounds"] = 2
+
+graph = SportAgentGraph(config=config)
+state, recommendation = graph.analyze("Knicks @ Spurs", game_date="2026-06-05")
+print(recommendation)
+```
+
+See `sportagent/default_config.py` for all configuration options.
+
+## Persistence and Memory
+
+SportAgent keeps an append-only **decision log** at `~/.sportagent/memory/sport_memory.md`. Each completed run records its prediction. Before a later run, SportAgent resolves any prior settled games (fetching the final Kalshi result), scores its earlier call with a Brier calibration, writes a short reflection, and injects the most recent same-matchup lessons plus a few cross-game lessons into the Decision Manager's prompt — so each analysis carries forward what worked and what didn't.
+
+Override the path with `SPORTAGENT_MEMORY_LOG_PATH`.
+
+## Reproducibility
+
+SportAgent is LLM-driven, so two runs of the same game can differ. This is expected for a tool built on language models, not a defect, and the variation comes from a few distinct sources.
+
+Language-model sampling is non-deterministic: even at a fixed temperature, providers do not guarantee byte-identical output, and reasoning models vary the most. Live data also moves — injury news, sentiment, and odds shift as a game approaches, so a run today sees different inputs than a run yesterday.
+
+What does **not** vary: the game identity is resolved deterministically before any agent runs, and a **verified-odds snapshot** grounds every exact price claim, so the analysts cannot fabricate a different matchup or invent prices. All quantitative math is deterministic.
+
+To reduce variation, lower the sampling temperature (set `temperature` in your config or `SPORTAGENT_TEMPERATURE` in `.env`) and pair it with a non-reasoning model.
 
 ## Multi-sport
 
-The core is sport-agnostic; sports are added as adapters under `sportagent/sports/<sport>/`. NBA ships first. NFL / MLB / soccer are scaffolded (soccer needs 3-way win/draw/loss handling, already modeled in `MarketRef.outcome_structure`).
+The core is sport-agnostic; sports are added as adapters under `sportagent/sports/<sport>/`. NBA ships first. NFL / MLB / soccer are scaffolded — soccer needs 3-way win/draw/loss handling, already modeled in `MarketRef.outcome_structure`.
 
 ## Development
 
@@ -93,6 +184,10 @@ The core is sport-agnostic; sports are added as adapters under `sportagent/sport
 pip install -e ".[dev]"
 pytest
 ```
+
+## Contributing
+
+Contributions are welcome — bug fixes, documentation, new sport adapters, and feature ideas.
 
 ## License
 
