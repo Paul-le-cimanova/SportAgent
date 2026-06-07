@@ -40,7 +40,13 @@ def _bdl_get(path: str, params: Optional[dict] = None) -> Any:
         resp.raise_for_status()
         return resp.json()
     except Exception as exc:  # noqa: BLE001 — fail open
-        logger.warning("balldontlie GET %s failed: %s", path, exc)
+        # /standings 401 is expected on the free tier (we fall back to /games);
+        # log it at debug so it doesn't spam the console / corrupt the live UI.
+        msg = str(exc)
+        if path.startswith("/standings") and "401" in msg:
+            logger.debug("balldontlie GET %s unavailable on this tier: %s", path, exc)
+        else:
+            logger.warning("balldontlie GET %s failed: %s", path, exc)
         return None
 
 

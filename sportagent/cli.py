@@ -15,10 +15,12 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
 from sportagent import onboarding
+from sportagent.run_logging import setup_run_logging
 
 app = typer.Typer(
     add_completion=False,
@@ -165,6 +167,8 @@ def analyze(
         )
     )
 
+    log_path = setup_run_logging(matchup=query, verbose=debug)
+
     graph = SportAgentGraph(config=config, debug=debug)
     if live:
         state, recommendation = _run_with_live(graph, query, sport, game_date=game_date)
@@ -174,6 +178,7 @@ def analyze(
     _render_result(state, recommendation)
     if save:
         _save_and_report(state)
+    _report_log_path(state, log_path)
 
 
 def _run_wizard() -> None:
@@ -203,12 +208,15 @@ def _run_wizard() -> None:
         )
     )
 
+    log_path = setup_run_logging(matchup=result.query)
+
     graph = SportAgentGraph(config=config)
     state, recommendation = _run_with_live(
         graph, result.query, result.sport, game_date=result.game_date
     )
     _render_result(state, recommendation)
     _save_and_report(state)
+    _report_log_path(state, log_path)
 
 
 def _run_with_live(graph, query: str, sport: str, game_date: Optional[str] = None):
@@ -237,7 +245,11 @@ def _save_and_report(state: dict) -> None:
 
 
 def _render_result(state: dict, recommendation: str) -> None:
-    """Pretty-print the winner prediction first, then supporting detail."""
+    """Pretty-print the winner prediction first, then supporting detail.
+
+    Content fields are markdown (headers/bold/bullets), so they are rendered
+    with ``rich.markdown.Markdown`` rather than printed as raw text.
+    """
     # Winner-first headline (the MVP output).
     from sportagent.core.graph.signal_processing import parse_winner
 
@@ -256,23 +268,43 @@ def _render_result(state: dict, recommendation: str) -> None:
 
     verified = state.get("verified_odds", "")
     if verified:
-        console.print(Panel(str(verified), title="Verified odds", border_style="blue"))
+        console.print(Panel(Markdown(str(verified)), title="Verified odds", border_style="blue"))
 
     thesis = state.get("investment_plan", "")
     if thesis:
-        console.print(Panel(str(thesis), title="Edge thesis", border_style="magenta"))
+        console.print(Panel(Markdown(str(thesis)), title="Edge thesis", border_style="magenta"))
 
     position = state.get("trader_position_plan", "")
     if position:
-        console.print(Panel(str(position), title="Position proposal", border_style="yellow"))
+        console.print(Panel(Markdown(str(position)), title="Position proposal", border_style="yellow"))
 
-    console.print(
-        Panel(
-            recommendation or "<no recommendation produced>",
-            title="Full recommendation (prediction + betting view)",
-            border_style="green",
+    rec = recommendation or "<no recommendation produced>"
+    if rec.startswith("<error"):
+        console.print(Panel(rec, title="Run failed", border_style="red"))
+    else:
+        console.print(
+            Panel(
+                Markdown(rec),
+                title="Full recommendation (prediction + betting view)",
+                border_style="green",
+            )
         )
-    )
+
+
+def _report_log_path(state: dict, log_path) -> None:
+    """Tell the user where the run log is — prominently when the run errored."""
+    if log_path is None:
+        return
+    if state.get("error") or str(state.get("final_recommendation", "")).startswith("<error"):
+        console.print(
+            Panel(
+                f"This run hit an error. Full traceback + logs:\n[bold]{log_path}[/bold]",
+                title="Run log",
+                border_style="red",
+            )
+        )
+    else:
+        console.print(f"[dim]Run log: {log_path}[/dim]")
 
 
 if __name__ == "__main__":

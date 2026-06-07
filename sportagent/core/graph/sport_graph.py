@@ -126,11 +126,11 @@ class SportAgentGraph:
     def analyze_stream(
         self, query: str, sport: str = "nba", game_date: Optional[str] = None
     ):
-        """Run the pipeline as a generator, yielding (node_name, chunk) updates.
+        """Run the pipeline as a generator, yielding node-level updates.
 
-        Yields each LangGraph node update as ``(node_name, state_delta)`` so a
-        live UI can flip agents pending->running->done in real time. The final
-        item yielded is ``("__final__", (final_state, recommendation))``.
+        Yields ``(node_name, state_delta)`` after each node so a live UI can
+        flip the progress table pending->running->done. The final item yielded
+        is ``("__final__", (final_state, recommendation))``.
         """
         adapter = _get_adapter(sport)
         if adapter is None:
@@ -158,17 +158,28 @@ class SportAgentGraph:
         recur_limit = self.config.get("max_recur_limit", 100)
         accumulated: Dict[str, Any] = dict(initial_state)
         try:
+            # Node-level streaming ("updates"): each chunk is {node_name: delta}.
+            # The live UI shows progress + the latest completed section; motion
+            # between agents comes from the spinner + steady refresh, so we do
+            # NOT use token ("messages") streaming here (it changed message
+            # content to block-lists and broke downstream string joins).
             for chunk in graph.stream(
                 initial_state, {"recursion_limit": recur_limit}
             ):
-                # Each chunk is {node_name: state_delta}.
+                if not isinstance(chunk, dict):
+                    continue
                 for node_name, delta in chunk.items():
                     if isinstance(delta, dict):
                         accumulated.update(delta)
                     yield node_name, delta
-        except Exception as exc:  # noqa: BLE001 — surface but don't crash callers
-            logger.error("Streamed graph run failed: %s", exc)
-            accumulated["final_recommendation"] = f"<error: graph run failed: {exc}>"
+        except Exception:  # surface full traceback to the log, fail soft to UI
+            logger.exception("Streamed graph run failed")
+            import traceback as _tb
+            accumulated["error"] = _tb.format_exc()
+            accumulated["final_recommendation"] = (
+                "<error: graph run failed — see the run log "
+                "(~/.sportagent/logs/) for the full traceback>"
+            )
 
         final_recommendation = accumulated.get("final_recommendation", "")
         self._log_decision(market_ref, accumulated)
@@ -176,7 +187,7 @@ class SportAgentGraph:
 
     # --- Internals -----------------------------------------------------------
 
-    def _resolve(self, adapter, query: str, game_date: Optional[str]):
+    def _resolve(self, adapter, query: str, game_date: Optional[str]):  # noqa: D401
         """Resolve the market, passing the wizard-selected date when supported.
 
         Older adapters may not accept a ``game_date`` kwarg, so fall back
@@ -206,10 +217,15 @@ class SportAgentGraph:
         recur_limit = self.config.get("max_recur_limit", 100)
         try:
             return graph.invoke(initial_state, {"recursion_limit": recur_limit})
-        except Exception as exc:  # noqa: BLE001 — surface but don't crash callers
-            logger.error("Graph run failed: %s", exc)
+        except Exception:  # surface full traceback to the log, fail soft
+            logger.exception("Graph run failed")
+            import traceback as _tb
             failed = dict(initial_state)
-            failed["final_recommendation"] = f"<error: graph run failed: {exc}>"
+            failed["error"] = _tb.format_exc()
+            failed["final_recommendation"] = (
+                "<error: graph run failed — see the run log "
+                "(~/.sportagent/logs/) for the full traceback>"
+            )
             return failed
 
     def _build_verified_odds(self, market_ref, adapter) -> str:
