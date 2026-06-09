@@ -100,6 +100,26 @@ def get_rest_status(team: str, game_date: str) -> str:
     return str(route_to_vendor("get_rest_status", team, game_date))
 
 
+@tool
+def get_four_factors(team: str, season: Optional[int] = None) -> str:
+    """Get a team's season Four Factors + efficiency (eFG%, turnover rate, OREB rate, free-throw rate, PPG).
+
+    These are the box-score rates that actually predict NBA outcomes; turnover
+    rate and free-throw rate in particular are where close games are won.
+    """
+    return str(route_to_vendor("get_four_factors", team, season))
+
+
+@tool
+def get_elo_winprob(home_team: str, away_team: str, season: Optional[int] = None) -> str:
+    """Get the deterministic Elo-based pre-game win probability for home_team vs away_team.
+
+    A real, computed prior (not an LLM guess) to anchor the probability estimate.
+    Includes home-court advantage.
+    """
+    return str(route_to_vendor("get_elo_winprob", home_team, away_team, season))
+
+
 # --- News/Injury Analyst tools -----------------------------------------------
 
 
@@ -118,7 +138,15 @@ def get_lineup_news(team: str, date: Optional[str] = None) -> str:
 # --- Tool groups (bound per analyst) -----------------------------------------
 
 ODDS_TOOLS = [get_kalshi_price, get_moneyline, get_line_movement, get_verified_odds_snapshot]
-STATS_TOOLS = [get_team_stats, get_recent_form, get_h2h, get_standings, get_rest_status]
+STATS_TOOLS = [
+    get_team_stats,
+    get_recent_form,
+    get_h2h,
+    get_standings,
+    get_rest_status,
+    get_four_factors,
+    get_elo_winprob,
+]
 NEWS_TOOLS = [get_injury_news, get_lineup_news]
 
 # Lookup by tool method name, for adapter-driven stats-tool selection.
@@ -128,4 +156,6 @@ STATS_TOOL_BY_NAME = {
     "get_h2h": get_h2h,
     "get_standings": get_standings,
     "get_rest_status": get_rest_status,
+    "get_four_factors": get_four_factors,
+    "get_elo_winprob": get_elo_winprob,
 }

@@ -100,6 +100,8 @@ class NBAAdapter:
             "get_recent_form",
             "get_h2h",
             "get_rest_status",
+            "get_four_factors",
+            "get_elo_winprob",
         ]
 
     def key_factors_prompt(self) -> str:
@@ -108,7 +110,19 @@ class NBAAdapter:
             "recent form (last 10), head-to-head this season, rest vs "
             "back-to-back (B2B teams underperform), home/away splits, and key "
             "injuries/availability. A B2B or a missing star is often the single "
-            "biggest edge the market underprices."
+            "biggest edge the market underprices.\n\n"
+            "ALWAYS call get_elo_winprob(home_team, away_team) first to get a "
+            "REAL computed Elo win probability — anchor your estimate to it "
+            "rather than inventing a model. Then call get_four_factors for BOTH "
+            "teams: compare eFG%, turnover rate, offensive-rebound rate, and "
+            "free-throw rate. Turnover rate and free-throw rate decide close "
+            "games — a team that protects the ball and gets to the line wins "
+            "tight playoff games even when overall talent is even. Cite the Elo "
+            "number and the Four-Factors gaps explicitly; do NOT claim to have "
+            "run any model you did not call as a tool. Finally, remember that a "
+            "single NBA game is high-variance: even a clear Four-Factors edge "
+            "only nudges a near-coin-flip, so keep single-game probabilities "
+            "honest (rarely above ~65% without a major injury)."
         )
 
     def resolve_market(

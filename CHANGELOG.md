@@ -5,6 +5,40 @@ All notable changes to SportAgent are documented here. This project follows
 the project is pre-1.0 and still evolving — minor versions add features, patch
 versions fix bugs.
 
+## [0.1.3] — 2026-06-08
+
+### Fixed
+- **Trader probability-parse bug** — the Trader silently fell back to a 50%
+  estimate whenever the Research Manager rendered its edge thesis as
+  `0.610 (61.0%)` (a decimal immediately followed by a parenthesized percent).
+  The old regex required a trailing `%` right after the first number and so
+  never matched the canonical decimal, corrupting every downstream edge/Kelly
+  calculation and producing contradictory runs (Manager 61% → Trader 50% → a
+  flipped BUY NO). The parser now reads the percentage echo or the canonical
+  decimal and only defaults to 0.5 when neither is present.
+- **Four-Factors small-sample bug** — `/stats` returns one row *per player per
+  game* (~30 rows/game), so a single 100-row page only covered ~3 games. The
+  aggregation now follows `next_cursor` pagination so the Four Factors are
+  computed over the full requested window (e.g. 20 games).
+
+### Added
+- **Real quantitative Stats Analyst tools** (the stockstats-equivalent the
+  TradingAgents-style debate assumes):
+  - `get_four_factors(team)` — season eFG%, **turnover rate**, offensive-rebound
+    rate, and **free-throw rate** (plus PPG / FGA), the box-score rates that
+    actually predict NBA outcomes. Turnover rate and free-throw rate are where
+    close games are won.
+  - `get_elo_winprob(home, away)` — a **real, deterministic** Elo win
+    probability (home-court adjustment, margin-of-victory multiplier, playoff
+    K-factor) the Research Manager can anchor to instead of inventing an "Elo
+    model" in prose.
+- **NBA key-factors prompt** now instructs the analyst to call the Elo prior and
+  Four Factors first, cite them explicitly, never claim to have run a model it
+  did not call as a tool, and keep single-game probabilities honest (high
+  variance — rarely above ~65% without a major injury).
+- Tests for the probability-parse fix, Elo math, and Four-Factors pagination
+  (`tests/test_stats_signals.py`).
+
 ## [0.1.2] — 2026-06-07
 
 ### Fixed
@@ -66,6 +100,7 @@ versions fix bugs.
 - Append-only decision log with post-settlement Brier reflection fed into future
   runs.
 
+[0.1.3]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.0

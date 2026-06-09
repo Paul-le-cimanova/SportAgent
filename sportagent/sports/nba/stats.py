@@ -326,6 +326,240 @@ def get_rest_status(team: str, game_date: str) -> str:
     return f"{team} is rested (no game on {prev_day} before {game_date})."
 
 
+def get_four_factors(team: str, season: Optional[int] = None, last_n: int = 20) -> str:
+    """Season Four-Factors + efficiency for a team (balldontlie box scores).
+
+    The "Four Factors" (Dean Oliver) are the box-score rates that actually
+    predict NBA outcomes — and two of them (turnover rate, free-throw rate) are
+    precisely the levers that decide close games:
+
+      - eFG%    effective field-goal % = (FGM + 0.5*3PM) / FGA   (shooting)
+      - TOV%    turnovers per ~possession                         (ball security)
+      - OREB%   offensive rebounds / (OREB + opp DREB) ≈ OREB/FGA proxy
+      - FT-rate FTM / FGA                                         (getting to the line)
+
+    Plus simple offensive output (PPG) and pace proxy. Computed from completed
+    games this season (most recent ``last_n``). Fails open to a placeholder.
+    """
+    data = _four_factors_data(team, season, last_n)
+    if data is None:
+        return f"<four factors unavailable for {team}>"
+    return (
+        f"{team} — Four Factors (last {data['games']} games, season {data['season']}): "
+        f"eFG% {data['efg'] * 100:.1f}%, TOV-rate {data['tov_rate'] * 100:.1f}%, "
+        f"OREB-rate {data['oreb_rate'] * 100:.1f}%, FT-rate {data['ft_rate']:.3f} "
+        f"(FTM/FGA); {data['ppg']:.1f} PPG on {data['fga_pg']:.1f} FGA/game."
+    )
+
+
+def _four_factors_data(
+    team: str, season: Optional[int] = None, last_n: int = 20
+) -> Optional[dict]:
+    """Compute team-level Four-Factors aggregates as a dict. None on failure.
+
+    Returns ``{games, season, efg, tov_rate, oreb_rate, ft_rate, ppg, fga_pg}``.
+    Aggregation is sum-then-divide (possession-weighted), which is the correct
+    way to combine rate stats across games (never average per-game ratios).
+    """
+    season = season or _current_season()
+    team_id = _resolve_team_id(team)
+    if team_id is None:
+        return None
+    # Pull completed games to know which game ids to aggregate box scores over.
+    games = _bdl_get(
+        "/games",
+        {"seasons[]": season, "team_ids[]": team_id, "per_page": 100},
+    )
+    if not games or "data" not in games:
+        return None
+    finals = [g for g in games["data"] if g.get("status", "").lower() == "final"]
+    finals.sort(key=lambda g: g.get("date", ""), reverse=True)
+    game_ids = [g.get("id") for g in finals[:last_n] if g.get("id") is not None]
+    if not game_ids:
+        return None
+
+    # The /stats endpoint returns one row PER PLAYER PER GAME (~30 rows/game), so
+    # a single page of 100 only covers ~3 games. Paginate via next_cursor until
+    # all requested games are gathered (cap for safety). balldontlie accepts
+    # repeated game_ids[]; requests encodes a list correctly.
+    base_params: dict = {
+        "team_ids[]": team_id,
+        "per_page": 100,
+        "seasons[]": season,
+        "game_ids[]": game_ids,
+    }
+    rows: list = []
+    cursor = None
+    pages = 0
+    while pages < 25:
+        params = dict(base_params)
+        if cursor is not None:
+            params["cursor"] = cursor
+        page = _bdl_get("/stats", params)
+        if not page or "data" not in page or not page["data"]:
+            break
+        rows.extend(page["data"])
+        cursor = (page.get("meta") or {}).get("next_cursor")
+        pages += 1
+        if cursor is None:
+            break
+    if not rows:
+        return None
+
+    fgm = fga = fg3m = ftm = fta = oreb = tov = pts = 0
+    n_games = set()
+    for row in rows:
+        if (row.get("team") or {}).get("id") != team_id:
+            continue
+        fgm += row.get("fgm", 0) or 0
+        fga += row.get("fga", 0) or 0
+        fg3m += row.get("fg3m", 0) or 0
+        ftm += row.get("ftm", 0) or 0
+        fta += row.get("fta", 0) or 0
+        oreb += row.get("oreb", 0) or 0
+        tov += row.get("turnover", 0) or 0
+        pts += row.get("pts", 0) or 0
+        gid = (row.get("game") or {}).get("id")
+        if gid is not None:
+            n_games.add(gid)
+    g = len(n_games) or 1
+    if fga <= 0:
+        return None
+    # Possession proxy (standard): FGA + 0.44*FTA + TOV.
+    poss = fga + 0.44 * fta + tov
+    return {
+        "games": g,
+        "season": season,
+        "efg": (fgm + 0.5 * fg3m) / fga,
+        "tov_rate": (tov / poss) if poss > 0 else 0.0,
+        "oreb_rate": oreb / fga,  # OREB/FGA proxy (true OREB% needs opp DREB)
+        "ft_rate": ftm / fga,
+        "ppg": pts / g,
+        "fga_pg": fga / g,
+    }
+
+
+def get_elo_winprob(
+    home_team: str, away_team: str, season: Optional[int] = None
+) -> str:
+    """Elo-based pre-game home win probability for ``home_team`` vs ``away_team``.
+
+    A *real* (deterministic) prior the Research Manager can anchor to, instead of
+    inventing an "Elo model" in prose. Ratings are built from this season's
+    completed games with a standard NBA Elo:
+
+      - start every team at 1500
+      - K-factor 20 (playoff games weighted slightly higher, K=24)
+      - margin-of-victory multiplier (FiveThirtyEight-style)
+      - home-court advantage of +60 Elo applied at prediction time
+
+    Expected home win prob = 1 / (1 + 10**(-(R_home + HCA - R_away)/400)).
+    Fails open to a placeholder when game data is unavailable.
+    """
+    data = _elo_winprob_data(home_team, away_team, season)
+    if data is None:
+        return f"<elo win prob unavailable for {home_team} vs {away_team}>"
+    return (
+        f"Elo prior (season {data['season']}): {home_team} {data['home_elo']:.0f} "
+        f"(home) vs {away_team} {data['away_elo']:.0f}. With +{data['hca']:.0f} "
+        f"home-court Elo, {home_team} win probability = "
+        f"{data['home_winprob'] * 100:.1f}% (away {(1 - data['home_winprob']) * 100:.1f}%)."
+    )
+
+
+def _elo_winprob_data(
+    home_team: str, away_team: str, season: Optional[int] = None, hca: float = 60.0
+) -> Optional[dict]:
+    """Compute Elo ratings + home win probability. None on failure.
+
+    Returns ``{season, home_elo, away_elo, hca, home_winprob}``.
+    """
+    season = season or _current_season()
+    home_id = _resolve_team_id(home_team)
+    away_id = _resolve_team_id(away_team)
+    if home_id is None or away_id is None:
+        return None
+    ratings = _season_elo_ratings(season)
+    if not ratings:
+        return None
+    r_home = ratings.get(home_id, 1500.0)
+    r_away = ratings.get(away_id, 1500.0)
+    home_winprob = 1.0 / (1.0 + 10 ** (-((r_home + hca) - r_away) / 400.0))
+    return {
+        "season": season,
+        "home_elo": r_home,
+        "away_elo": r_away,
+        "hca": hca,
+        "home_winprob": home_winprob,
+    }
+
+
+# Cache the computed Elo table per season (one full /games sweep per process).
+_ELO_CACHE: dict[int, dict] = {}
+
+
+def _season_elo_ratings(season: int) -> dict:
+    """Build an Elo rating table for every team from this season's finals.
+
+    Iterates completed games in chronological order, updating both teams after
+    each result with a margin-of-victory-scaled K-factor. Cached per season.
+    """
+    if season in _ELO_CACHE:
+        return _ELO_CACHE[season]
+    data = _bdl_get("/games", {"seasons[]": season, "per_page": 100})
+    # /games is paginated; pull subsequent pages until exhausted (cap for safety).
+    games: list = []
+    if data and "data" in data:
+        games.extend(data["data"])
+        cursor = (data.get("meta") or {}).get("next_cursor")
+        pages = 0
+        while cursor and pages < 40:
+            page = _bdl_get(
+                "/games",
+                {"seasons[]": season, "per_page": 100, "cursor": cursor},
+            )
+            if not page or "data" not in page:
+                break
+            games.extend(page["data"])
+            cursor = (page.get("meta") or {}).get("next_cursor")
+            pages += 1
+    finals = [g for g in games if g.get("status", "").lower() == "final"]
+    if not finals:
+        return {}
+    finals.sort(key=lambda g: g.get("date", ""))
+
+    ratings: dict[int, float] = {}
+
+    def rating(tid: int) -> float:
+        return ratings.get(tid, 1500.0)
+
+    for g in finals:
+        home = g.get("home_team", {}) or {}
+        away = g.get("visitor_team", {}) or {}
+        hid, aid = home.get("id"), away.get("id")
+        if hid is None or aid is None:
+            continue
+        hs = g.get("home_team_score", 0) or 0
+        as_ = g.get("visitor_team_score", 0) or 0
+        if hs == as_:
+            continue
+        r_h, r_a = rating(hid), rating(aid)
+        # +100 home-court when computing the in-game expectation.
+        exp_h = 1.0 / (1.0 + 10 ** (-((r_h + 100.0) - r_a) / 400.0))
+        s_h = 1.0 if hs > as_ else 0.0
+        margin = abs(hs - as_)
+        elo_diff = (r_h + 100.0) - r_a if s_h else r_a - (r_h + 100.0)
+        # FiveThirtyEight MoV multiplier (dampens runaway favorites).
+        mov_mult = ((margin + 3) ** 0.8) / (7.5 + 0.006 * elo_diff)
+        k = 24.0 if g.get("postseason") else 20.0
+        delta = k * mov_mult * (s_h - exp_h)
+        ratings[hid] = r_h + delta
+        ratings[aid] = r_a - delta
+
+    _ELO_CACHE[season] = ratings
+    return ratings
+
+
 # --- Helpers -----------------------------------------------------------------
 
 
@@ -411,3 +645,5 @@ register_vendor_method("get_h2h", "balldontlie", get_h2h)
 register_vendor_method("get_standings", "espn", get_standings)
 register_vendor_method("get_schedule", "espn", get_schedule)
 register_vendor_method("get_rest_status", "espn", get_rest_status)
+register_vendor_method("get_four_factors", "balldontlie", get_four_factors)
+register_vendor_method("get_elo_winprob", "balldontlie", get_elo_winprob)
