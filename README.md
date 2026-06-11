@@ -13,6 +13,8 @@
 ---
 
 ## News
+- **[2026-06] SportAgent v0.2.0** — Distribution + LLM auth: new `sportagent update` command + automatic update notices; run **without an API key** via the new **Claude Code CLI proxy** (`claude`) or **Codex CLI proxy** (`codex`) — `sportagent setup` auto-detects installed CLIs and asks provider × auth method; GitHub Actions CI (test matrix, PyPI publish on tag, macOS/Windows binaries).
+- **[2026-06] SportAgent v0.1.3** — Real quantitative Stats Analyst tools: `get_four_factors` (eFG%, turnover rate, OREB rate, FT-rate) and `get_elo_winprob` (deterministic Elo prior with home-court/MoV/playoff K) ground the debate in real box-score signals; fixed the Trader probability-parse bug and a Four-Factors small-sample bug.
 - **[2026-06] SportAgent v0.1.2** — Stability + UX fixes: fixed a live-run crash that aborted runs mid-pipeline, final reports now render Markdown properly, added per-run logging to `~/.sportagent/logs/` (with per-agent timings + tracebacks), and the live UI now shows "deep reasoning…" / "still working…" hints so long deep-model steps read as working, not stuck.
 - **[2026-06] SportAgent v0.1.1** — Kalshi data-correctness fixes: market prices now read the live `*_dollars` fields, and game-winner markets resolve to the **exact game date** you select (no more stale/expired tickers). Default Kalshi environment switched to **prod** (read-only) for real market prices.
 - **[2026-06] SportAgent v0.1.0** — First public release. Winner-first NBA predictions, a schedule-driven game-picker wizard, a live streaming UI, and saved Markdown reports.

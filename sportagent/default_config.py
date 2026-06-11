@@ -12,6 +12,7 @@ _SPORTAGENT_HOME = os.path.join(os.path.expanduser("~"), ".sportagent")
 # env var -> config key. Coercion driven by the type of the existing default.
 _ENV_OVERRIDES = {
     "SPORTAGENT_LLM_PROVIDER":      "llm_provider",
+    "SPORTAGENT_LLM_AUTH_METHOD":   "llm_auth_method",
     "SPORTAGENT_DEEP_THINK_LLM":    "deep_think_llm",
     "SPORTAGENT_QUICK_THINK_LLM":   "quick_think_llm",
     "SPORTAGENT_OUTPUT_LANGUAGE":   "output_language",
@@ -64,6 +65,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
 
     # LLM settings
     "llm_provider": "anthropic",          # "anthropic" or "openai"
+    "llm_auth_method": "api_key",         # "api_key" or "cli_proxy" (Claude Code / Codex CLI)
     "deep_think_llm": "claude-opus-4-8",  # Research Manager + Decision Manager
     "quick_think_llm": "claude-haiku-4-5-20251001",  # analysts, researchers, trader, risk
     "backend_url": None,

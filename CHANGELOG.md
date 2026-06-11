@@ -5,6 +5,38 @@ All notable changes to SportAgent are documented here. This project follows
 the project is pre-1.0 and still evolving — minor versions add features, patch
 versions fix bugs.
 
+## [0.2.0] — 2026-06-11
+
+### Added
+- **`sportagent update`** — checks PyPI for a newer version and upgrades in
+  place (`pip install --upgrade sportagent`). Plus a **non-blocking startup
+  version check** (cached 24h at `~/.sportagent/update_check.json`) that prints
+  a one-line hint when a newer version is available. Both fail open and never
+  interfere with a run.
+- **Claude Code CLI proxy** — run SportAgent **without an Anthropic API key**
+  if you have Claude Code installed and logged in. A new LangChain adapter
+  (`ChatClaudeCodeProxy`) shells out to `claude -p` (tools disabled, no session
+  persistence) with native structured output via `--json-schema`.
+- **Codex CLI proxy** — the same for OpenAI: run without an `OPENAI_API_KEY`
+  using the `codex` CLI (`ChatCodexProxy`, `codex exec` with a read-only
+  sandbox, ephemeral sessions, and native `--output-schema` structured output,
+  including an automatic strict-schema patcher).
+- **Provider × auth-method setup wizard** — `sportagent setup` now asks for the
+  LLM provider (Anthropic/OpenAI) and auth method (API key / CLI proxy),
+  auto-detects installed CLIs and existing keys, and only prompts for the keys
+  your configuration actually needs. `sportagent doctor` verifies the chosen
+  CLI in proxy mode. New config: `llm_auth_method`
+  (`SPORTAGENT_LLM_AUTH_METHOD=api_key|cli_proxy`); defaults are fully
+  backward compatible.
+- **GitHub Actions CI/CD** — test matrix (Ubuntu/macOS/Windows × Python
+  3.10–3.13) on every push/PR; auto-publish to PyPI on `v*` tags (with an
+  sdist secret check); PyInstaller binaries (macOS ARM/Intel + Windows)
+  attached to GitHub Releases on tag.
+- **PyPI packaging metadata** — project URLs, authors, classifiers, and the
+  modern SPDX license declaration, ready for `pip install sportagent`.
+- Tests for proxy detection, command construction, structured output, factory
+  routing, and conditional key requirements (`tests/test_cli_proxy.py`).
+
 ## [0.1.3] — 2026-06-08
 
 ### Fixed
@@ -100,6 +132,7 @@ versions fix bugs.
 - Append-only decision log with post-settlement Brier reflection fed into future
   runs.
 
+[0.2.0]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.2.0
 [0.1.3]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.1

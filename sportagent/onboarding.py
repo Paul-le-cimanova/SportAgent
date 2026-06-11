@@ -79,6 +79,9 @@ def _validate_kalshi_env(value: str, _env: Dict[str, str]) -> Tuple[bool, str]:
 # Ordered list — drives both the wizard prompts and the doctor report.
 ENV_KEYS: List[EnvKey] = [
     # --- LLM provider ---
+    # NOTE: the `required` flags on the two LLM keys are *dynamic* — see
+    # ``_llm_key_required``. ANTHROPIC_API_KEY is only required when the
+    # provider is anthropic AND the auth method is api_key (not cli_proxy).
     EnvKey(
         name="ANTHROPIC_API_KEY",
         group="LLM (Anthropic)",
@@ -153,6 +156,46 @@ ENV_KEYS: List[EnvKey] = [
         signup_url="https://www.openwebninja.com/",
     ),
 ]
+
+
+_LLM_KEY_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")
+
+
+def _llm_settings(source: Dict[str, str]) -> Tuple[str, str]:
+    """Return ``(provider, auth_method)`` from an env mapping (with defaults)."""
+    provider = (source.get("SPORTAGENT_LLM_PROVIDER") or "anthropic").strip().lower()
+    method = (source.get("SPORTAGENT_LLM_AUTH_METHOD") or "api_key").strip().lower()
+    return provider, method
+
+
+def _llm_key_required(spec: EnvKey, source: Dict[str, str]) -> bool:
+    """Effective `required` for a key, honoring provider × auth-method.
+
+    - In ``cli_proxy`` mode no LLM API key is required at all.
+    - In ``api_key`` mode only the selected provider's key is required.
+    - Non-LLM keys keep their declared flag.
+    """
+    if spec.name not in _LLM_KEY_NAMES:
+        return spec.required
+    provider, method = _llm_settings(source)
+    if method == "cli_proxy":
+        return False
+    if spec.name == "ANTHROPIC_API_KEY":
+        return provider == "anthropic"
+    return provider == "openai"
+
+
+def detect_available_providers() -> Dict[str, bool]:
+    """Detect which LLM providers / auth methods are usable on this machine."""
+    from sportagent.core.llm_clients.claude_code_proxy import is_claude_code_available
+    from sportagent.core.llm_clients.codex_proxy import is_codex_available
+
+    return {
+        "anthropic_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "anthropic_cli_proxy": is_claude_code_available(),
+        "openai_api_key": bool(os.environ.get("OPENAI_API_KEY")),
+        "openai_cli_proxy": is_codex_available(),
+    }
 
 
 def env_keys_by_group() -> Dict[str, List[EnvKey]]:
@@ -359,11 +402,12 @@ def check_environment(
     results: List[CheckResult] = []
 
     for spec in ENV_KEYS:
+        required = _llm_key_required(spec, source)
         value = source.get(spec.name, "").strip()
         if not value:
-            status = STATUS_MISSING if spec.required else STATUS_SKIPPED
-            hint = "" if not spec.required else f"Set {spec.name} ({spec.signup_url})"
-            results.append(CheckResult(spec.name, spec.group, spec.required, status, hint))
+            status = STATUS_MISSING if required else STATUS_SKIPPED
+            hint = "" if not required else f"Set {spec.name} ({spec.signup_url})"
+            results.append(CheckResult(spec.name, spec.group, required, status, hint))
             continue
         if spec.validator is not None:
             ok, hint = spec.validator(value, source)
@@ -371,13 +415,40 @@ def check_environment(
                 CheckResult(
                     spec.name,
                     spec.group,
-                    spec.required,
+                    required,
                     STATUS_OK if ok else STATUS_INVALID,
                     "" if ok else hint,
                 )
             )
         else:
-            results.append(CheckResult(spec.name, spec.group, spec.required, STATUS_OK))
+            results.append(CheckResult(spec.name, spec.group, required, STATUS_OK))
+
+    # In cli_proxy mode, verify the chosen CLI is actually installed.
+    provider, method = _llm_settings(source)
+    if method == "cli_proxy":
+        if provider == "anthropic":
+            from sportagent.core.llm_clients.claude_code_proxy import (
+                is_claude_code_available as _cli_ok,
+            )
+
+            cli_name = "claude (Claude Code)"
+        else:
+            from sportagent.core.llm_clients.codex_proxy import (
+                is_codex_available as _cli_ok,
+            )
+
+            cli_name = "codex (Codex CLI)"
+        ok = _cli_ok()
+        results.append(
+            CheckResult(
+                f"cli: {cli_name}",
+                "LLM (CLI proxy)",
+                True,
+                STATUS_OK if ok else STATUS_MISSING,
+                "" if ok else f"`{cli_name.split()[0]}` not found on PATH — install it "
+                "or switch to API-key mode with `sportagent setup`.",
+            )
+        )
 
     if live:
         for label, ping in _PINGS.items():
@@ -449,11 +520,83 @@ def run_setup_wizard(
            "\nSportAgent setup — configure API keys (written to .env)\n")
 
     collected: Dict[str, str] = {}
+
+    # --- LLM provider × auth method ------------------------------------
+    try:
+        detected = detect_available_providers()
+    except Exception:  # noqa: BLE001 — detection is best-effort
+        detected = {
+            "anthropic_api_key": False,
+            "anthropic_cli_proxy": False,
+            "openai_api_key": False,
+            "openai_cli_proxy": False,
+        }
+
+    header = "— LLM provider —"
+    _print(f"\n[bold cyan]{header}[/bold cyan]" if _have_rich else f"\n{header}")
+    _print(
+        f"  Detected: Claude Code CLI={'yes' if detected['anthropic_cli_proxy'] else 'no'}, "
+        f"Codex CLI={'yes' if detected['openai_cli_proxy'] else 'no'}, "
+        f"ANTHROPIC_API_KEY={'set' if detected['anthropic_api_key'] else 'unset'}, "
+        f"OPENAI_API_KEY={'set' if detected['openai_api_key'] else 'unset'}"
+    )
+    provider_default = (existing.get("SPORTAGENT_LLM_PROVIDER") or "anthropic").strip().lower()
+    provider = _prompt(
+        "  LLM provider (anthropic/openai)", default=provider_default, secret=False
+    ).strip().lower()
+    if provider not in ("anthropic", "openai"):
+        _print("    ! Unknown provider; using 'anthropic'.")
+        provider = "anthropic"
+
+    cli_detected = detected["anthropic_cli_proxy"] if provider == "anthropic" else detected["openai_cli_proxy"]
+    key_set = detected["anthropic_api_key"] if provider == "anthropic" else detected["openai_api_key"]
+    cli_bin = "claude" if provider == "anthropic" else "codex"
+    method_default = (existing.get("SPORTAGENT_LLM_AUTH_METHOD") or "").strip().lower()
+    if method_default not in ("api_key", "cli_proxy"):
+        # Smart default: prefer the CLI when it's installed and no key is set.
+        method_default = "cli_proxy" if (cli_detected and not key_set) else "api_key"
+    _print(
+        f"  api_key   = use your own API key (direct API access)\n"
+        f"  cli_proxy = no API key needed; SportAgent calls the `{cli_bin}` CLI "
+        f"({'detected' if cli_detected else 'NOT detected'})"
+    )
+    auth_method = _prompt(
+        "  Auth method (api_key/cli_proxy)", default=method_default, secret=False
+    ).strip().lower()
+    if auth_method not in ("api_key", "cli_proxy"):
+        _print("    ! Unknown auth method; using 'api_key'.")
+        auth_method = "api_key"
+    if auth_method == "cli_proxy" and not cli_detected:
+        _print(
+            f"    ! The `{cli_bin}` CLI was not detected on PATH. cli_proxy mode "
+            f"will fail until you install it (or re-run setup and pick api_key)."
+            if not _have_rich
+            else f"    [yellow]! The `{cli_bin}` CLI was not detected on PATH. cli_proxy "
+            f"mode will fail until you install it.[/yellow]"
+        )
+    collected["SPORTAGENT_LLM_PROVIDER"] = provider
+    collected["SPORTAGENT_LLM_AUTH_METHOD"] = auth_method
+
+    # LLM key groups to skip: in cli_proxy mode skip both; in api_key mode
+    # only prompt for the selected provider's key.
+    skip_groups = set()
+    if auth_method == "cli_proxy":
+        skip_groups.update({"LLM (Anthropic)", "LLM (OpenAI)"})
+        _print(
+            f"  Using the `{cli_bin}` CLI for LLM calls — no LLM API key needed."
+        )
+    elif provider == "anthropic":
+        skip_groups.add("LLM (OpenAI)")
+    else:
+        skip_groups.add("LLM (Anthropic)")
+
     for group, specs in env_keys_by_group().items():
+        if group in skip_groups:
+            continue
         header = f"— {group} —"
         _print(f"\n[bold cyan]{header}[/bold cyan]" if _have_rich else f"\n{header}")
         for spec in specs:
-            req = "required" if spec.required else "optional"
+            req = "required" if _llm_key_required(spec, collected) else "optional"
             if spec.signup_url:
                 _print(
                     f"  {spec.description} ({req})  → {spec.signup_url}"

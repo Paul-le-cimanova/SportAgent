@@ -1,0 +1,29 @@
+name: Build Binaries
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest        # ARM (M-series)
+            artifact: sportagent-macos-arm64
+          - os: macos-13            # Intel
+            artifact: sportagent-macos-x64
+          - os: windows-latest
+            artifact: sportagent-windows-x64
+    permissions:
+      contents: write  # to attach assets to the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e . && pip install pyinstaller
+      - run: pyinstaller --onefile --name ${{ matrix.artifact }} main.py
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.artifact }}*

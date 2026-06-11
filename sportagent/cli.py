@@ -4,6 +4,7 @@ Commands:
 - ``setup``    : interactive wizard that writes API keys to ``.env``.
 - ``doctor``   : preflight report (presence + optional live ``--live`` pings).
 - ``analyze``  : run the full pipeline for a Kalshi market / matchup query.
+- ``update``   : check PyPI for a newer version and upgrade in place.
 
 The package ``__init__`` loads ``.env`` at import, so every command sees the
 user's keys regardless of how the console script is launched.
@@ -11,6 +12,10 @@ user's keys regardless of how the console script is launched.
 
 from __future__ import annotations
 
+import json
+import threading
+import time
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -33,9 +38,126 @@ console = Console()
 @app.callback()
 def _main(ctx: typer.Context) -> None:
     """Launch the interactive game-picker wizard when no subcommand is given."""
+    # Never run (or print from) the update check during `update` itself.
+    if ctx.invoked_subcommand != "update":
+        _check_for_update_background()
     if ctx.invoked_subcommand is not None:
         return
     _run_wizard()
+
+
+def _installed_version() -> str:
+    """Return the installed sportagent version (best-effort)."""
+    try:
+        from importlib.metadata import version as installed_version
+
+        return installed_version("sportagent")
+    except Exception:  # noqa: BLE001 — e.g. running from a source checkout
+        try:
+            import sportagent
+
+            return getattr(sportagent, "__version__", "0.0.0")
+        except Exception:  # noqa: BLE001
+            return "0.0.0"
+
+
+def _get_latest_pypi_version(package: str) -> Optional[str]:
+    """Fetch the latest version from the PyPI JSON API (None on any error)."""
+    import urllib.request
+
+    try:
+        url = f"https://pypi.org/pypi/{package}/json"
+        with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 — fixed https URL
+            data = json.loads(resp.read())
+            return data["info"]["version"]
+    except Exception:  # noqa: BLE001 — fail open, never block the CLI
+        return None
+
+
+_UPDATE_CACHE_PATH = Path.home() / ".sportagent" / "update_check.json"
+_UPDATE_CACHE_TTL_SECONDS = 86400  # 24h
+
+
+def _check_for_update_background() -> None:
+    """Non-blocking check for a newer version; one-line notice if outdated.
+
+    Results are cached at ``~/.sportagent/update_check.json`` for 24h so the
+    network is hit at most once a day. Any failure is silent — the check must
+    never interfere with a run.
+    """
+
+    def _notify(latest: str) -> None:
+        console.print(
+            f"[dim]SportAgent v{latest} available — "
+            f"run `sportagent update` to upgrade[/dim]"
+        )
+
+    def _check() -> None:
+        try:
+            # Fresh cache → use it, skip the network.
+            if _UPDATE_CACHE_PATH.exists():
+                try:
+                    data = json.loads(_UPDATE_CACHE_PATH.read_text())
+                    if time.time() - data.get("ts", 0) < _UPDATE_CACHE_TTL_SECONDS:
+                        if data.get("newer") and data.get("latest"):
+                            _notify(data["latest"])
+                        return
+                except Exception:  # noqa: BLE001 — corrupt cache → re-check
+                    pass
+
+            current = _installed_version()
+            latest = _get_latest_pypi_version("sportagent")
+            if latest is None:
+                return
+            newer = latest != current
+            _UPDATE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _UPDATE_CACHE_PATH.write_text(
+                json.dumps(
+                    {"ts": time.time(), "current": current, "latest": latest, "newer": newer}
+                )
+            )
+            if newer:
+                _notify(latest)
+        except Exception:  # noqa: BLE001 — never let the check crash anything
+            pass
+
+    threading.Thread(target=_check, daemon=True).start()
+
+
+@app.command()
+def update() -> None:
+    """Check for updates and install the latest version from PyPI."""
+    import subprocess
+    import sys
+
+    current = _installed_version()
+    console.print(f"Current version: [bold]{current}[/bold]")
+    console.print("Checking for updates…")
+
+    latest = _get_latest_pypi_version("sportagent")
+    if latest is None:
+        console.print("[yellow]Could not check PyPI for updates.[/yellow]")
+        raise typer.Exit(code=1)
+    if latest == current:
+        console.print(f"[green]Already up to date (v{current}).[/green]")
+        return
+
+    console.print(f"New version available: [bold green]v{latest}[/bold green]")
+    console.print("Upgrading…")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "sportagent"]
+        )
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Upgrade failed (pip exited with {exc.returncode}).[/red]")
+        raise typer.Exit(code=1)
+
+    # Invalidate the 24h cache so the startup notice disappears immediately.
+    try:
+        _UPDATE_CACHE_PATH.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001 — cache cleanup is best-effort
+        pass
+    console.print(f"[green]Updated to v{latest}![/green]")
 
 
 _STATUS_STYLE = {
