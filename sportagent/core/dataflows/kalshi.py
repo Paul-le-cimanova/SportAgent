@@ -110,11 +110,14 @@ def get_markets(
     series_ticker: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 100,
+    cursor: Optional[str] = None,
     config: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """List markets, optionally filtered by event/series/status.
 
-    Returns ``{"markets": [...], "cursor": ...}`` or ``{"error": ...}``.
+    Pass ``cursor`` (from a prior response's ``"cursor"``) to page through
+    results — the World Cup bracket exceeds one page. Returns
+    ``{"markets": [...], "cursor": ...}`` or ``{"error": ...}``.
     """
     params: Dict[str, Any] = {"limit": limit}
     if event_ticker:
@@ -123,6 +126,8 @@ def get_markets(
         params["series_ticker"] = series_ticker
     if status:
         params["status"] = status
+    if cursor:
+        params["cursor"] = cursor
     return _signed_get(f"/markets?{urlencode(params)}", config)
 
 

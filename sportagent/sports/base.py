@@ -20,6 +20,19 @@ from typing import Any, Dict, List, Literal, Optional, Protocol, runtime_checkab
 
 OutcomeStructure = Literal["two_way", "three_way"]
 
+# Per-sport headline emoji for the winner prediction line.
+_SPORT_ICONS: Dict[str, str] = {
+    "nba": "🏀",
+    "soccer": "⚽",
+    "nfl": "🏈",
+    "mlb": "⚾",
+}
+
+
+def sport_icon(sport: Optional[str]) -> str:
+    """Return the headline emoji for ``sport`` (defaults to 🏀)."""
+    return _SPORT_ICONS.get((sport or "").strip().lower(), "🏀")
+
 
 @dataclass
 class MarketRef:

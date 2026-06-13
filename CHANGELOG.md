@@ -5,6 +5,33 @@ All notable changes to SportAgent are documented here. This project follows
 the project is pre-1.0 and still evolving — minor versions add features, patch
 versions fix bugs.
 
+## [0.3.0] — 2026-06-12
+
+### Added
+- **Soccer / World Cup (3-way win/draw/loss)** — SportAgent's second sport. A
+  new `sports/soccer/` adapter resolves a match to three Kalshi contracts
+  (home / draw / away) on the World Cup match-winner series (`KXWCGAME`), and
+  the deterministic core gains 3-way math (`devig_3way`, `kelly_3way`,
+  best-edge-leg selection incl. the often-mispriced draw). The Research Manager
+  emits a probability vector that sums to 1; the Trader picks the best-edge leg
+  or HOLDs.
+- **Soccer stats via the balldontlie FIFA World Cup API** (reuses your existing
+  `BALLDONTLIE_API_KEY` — no new key): real team-level xG (for/against per
+  game), group standings, recent form (W/D/L), and head-to-head.
+- **Soccer in the wizard + CLI** — pick soccer, a competition, and a market type
+  (match / advancement / futures); `analyze` gains `--competition` and
+  `--market-type`.
+- **Per-sport headline icon** — predictions now show the right emoji
+  (⚽ soccer, 🏀 NBA, …) in the terminal and saved reports.
+
+### Fixed
+- **Soccer runs no longer call NBA stats tools.** The Stats Analyst now binds the
+  active sport adapter's tools, so a soccer analysis uses the soccer xG/table/
+  form/H2H tools instead of accidentally hitting the NBA stats endpoint.
+- **Tolerant matchup resolution** — team-name variants ("Bosnia-Herzegovina" vs
+  "Bosnia and Herzegovina"), accents, and finalized fixtures now resolve, with
+  full pagination across the World Cup bracket.
+
 ## [0.2.0] — 2026-06-11
 
 ### Added
@@ -132,6 +159,7 @@ versions fix bugs.
 - Append-only decision log with post-settlement Brier reflection fed into future
   runs.
 
+[0.3.0]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.2.0
 [0.1.3]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Paul-le-cimanova/SportAgent/releases/tag/v0.1.2

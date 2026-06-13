@@ -20,6 +20,8 @@ _VENDOR_MODULES = (
     "sportagent.core.dataflows.openweb_news",
     # NBA stats tools (balldontlie + espn) live under sports/, import for reg.
     "sportagent.sports.nba.stats",
+    # Soccer stats tools (football-data.org) live under sports/, import for reg.
+    "sportagent.sports.soccer.stats",
 )
 
 for _mod in _VENDOR_MODULES:

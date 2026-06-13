@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from sportagent.core.agents.schemas import EdgeThesis, render_edge_thesis
+from sportagent.core.agents.schemas import (
+    EdgeThesis,
+    ThreeWayEdgeThesis,
+    render_edge_thesis,
+    render_three_way_edge_thesis,
+)
 from sportagent.core.agents.utils.agent_utils import (
     get_game_context_from_state,
     get_language_instruction,
@@ -43,6 +48,7 @@ def create_research_manager(llm):
 
     def research_manager_node(state):
         debate = state.get("investment_debate_state", {})
+        three_way = state.get("outcome_structure", "two_way") == "three_way"
         system = _SYSTEM.format(
             game_context=get_game_context_from_state(state),
             language=get_language_instruction(),
@@ -53,16 +59,30 @@ def create_research_manager(llm):
             sentiment_report=state.get("sentiment_report", ""),
             history=debate.get("history", ""),
         )
-        messages = [
-            SystemMessage(content=system),
-            HumanMessage(content=(
-                "Commit to your edge thesis: lean, estimated probability, "
-                "rationale, and key factors."
-            )),
-        ]
-        markdown, _parsed = invoke_structured_or_freetext(
-            llm, EdgeThesis, messages, render_edge_thesis
-        )
+        if three_way:
+            messages = [
+                SystemMessage(content=system),
+                HumanMessage(content=(
+                    "This is a THREE-WAY soccer market. Commit to a probability "
+                    "vector: prob_home, prob_draw, prob_away (the code normalizes "
+                    "them to sum to 1) — never treat the draw as a leftover. Add "
+                    "rationale and key factors."
+                )),
+            ]
+            markdown, _parsed = invoke_structured_or_freetext(
+                llm, ThreeWayEdgeThesis, messages, render_three_way_edge_thesis
+            )
+        else:
+            messages = [
+                SystemMessage(content=system),
+                HumanMessage(content=(
+                    "Commit to your edge thesis: lean, estimated probability, "
+                    "rationale, and key factors."
+                )),
+            ]
+            markdown, _parsed = invoke_structured_or_freetext(
+                llm, EdgeThesis, messages, render_edge_thesis
+            )
 
         new_debate = dict(debate)
         new_debate["judge_decision"] = markdown

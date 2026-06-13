@@ -25,7 +25,28 @@ from typing import Dict, List, Optional
 
 # --- Static option tables ----------------------------------------------------
 
-_SPORTS = [("NBA (basketball)", "nba")]
+_SPORTS = [
+    ("NBA (basketball)", "nba"),
+    ("Soccer / World Cup (3-way)", "soccer"),
+]
+
+# Soccer competitions (label, The-Odds-API sportsbook key / football-data code).
+_SOCCER_COMPETITIONS = [
+    ("Premier League (EPL)", "soccer_epl"),
+    ("UEFA Champions League", "soccer_uefa_champs_league"),
+    ("FIFA World Cup", "soccer_fifa_world_cup"),
+    ("La Liga (Spain)", "soccer_spain_la_liga"),
+    ("Serie A (Italy)", "soccer_italy_serie_a"),
+    ("Bundesliga (Germany)", "soccer_germany_bundesliga"),
+    ("Ligue 1 (France)", "soccer_france_ligue_one"),
+]
+
+# Soccer market types (label, value). Match = 3-way; advancement/futures = 2-way.
+_SOCCER_MARKET_TYPES = [
+    ("Match winner (3-way: home/draw/away)", "match"),
+    ("Advancement (to advance/reach stage — YES/NO)", "advancement"),
+    ("Tournament winner / futures (YES/NO)", "futures"),
+]
 
 _DEPTHS = [
     ("Shallow — 1 debate round (fast)", 1),
@@ -77,6 +98,9 @@ class WizardResult:
     deep_llm: str
     quick_llm: str
     config_overrides: Dict[str, object] = field(default_factory=dict)
+    # Soccer-only: competition sportsbook key + market type (match/advancement/futures).
+    competition: str = ""
+    market_type: str = "match"
 
 
 # --- questionary / plain-input helpers ---------------------------------------
@@ -191,21 +215,28 @@ def _pick_date(today: Optional[_dt.date] = None) -> Optional[str]:
 # --- Game picker -------------------------------------------------------------
 
 
-def _fetch_schedule(sport: str, date: str) -> List[dict]:
+def _fetch_schedule(sport: str, date: str, competition: str = "") -> List[dict]:
     """Fetch the schedule for ``sport`` on ``date`` (fail-open to [])."""
-    if sport != "nba":
-        return []
-    try:
-        from sportagent.sports.nba.stats import get_schedule_for_date
+    if sport == "nba":
+        try:
+            from sportagent.sports.nba.stats import get_schedule_for_date
 
-        return get_schedule_for_date(date) or []
-    except Exception:  # noqa: BLE001 — fail open
-        return []
+            return get_schedule_for_date(date) or []
+        except Exception:  # noqa: BLE001 — fail open
+            return []
+    if sport == "soccer":
+        try:
+            from sportagent.sports.soccer.stats import get_schedule_for_date
+
+            return get_schedule_for_date(date, competition or "soccer_epl") or []
+        except Exception:  # noqa: BLE001 — fail open
+            return []
+    return []
 
 
-def _pick_game(sport: str, date: str) -> Optional[dict]:
+def _pick_game(sport: str, date: str, competition: str = "") -> Optional[dict]:
     """Pick a game from the fetched schedule, or None when none/aborted."""
-    games = _fetch_schedule(sport, date)
+    games = _fetch_schedule(sport, date, competition)
     if not games:
         print(f"\n  No {sport.upper()} games found on {date}.")
         return None
@@ -227,11 +258,22 @@ def run_game_wizard() -> Optional[WizardResult]:
     if sport is None:
         return None
 
+    # Soccer adds a competition picker + market-type selector before the date.
+    competition = ""
+    market_type = "match"
+    if sport == "soccer":
+        competition = _select("Select a competition:", _SOCCER_COMPETITIONS)
+        if competition is None:
+            return None
+        market_type = _select("Market type:", _SOCCER_MARKET_TYPES, default_index=0)
+        if market_type is None:
+            market_type = "match"
+
     date = _pick_date()
     if date is None:
         return None
 
-    game = _pick_game(sport, date)
+    game = _pick_game(sport, date, competition)
     if game is None:
         return None
     away, home = game.get("away", ""), game.get("home", "")
@@ -254,7 +296,9 @@ def run_game_wizard() -> Optional[WizardResult]:
     if quick_llm == "__custom__":
         quick_llm = _text("Custom quick model ID", default=_MODELS[provider]["quick"][0][1])
 
-    query = f"{away} @ {home}"
+    # Soccer titles read "Home vs Away"; use a vs-form query so the soccer
+    # adapter parses the sides correctly (NBA keeps the "Away @ Home" form).
+    query = f"{home} vs {away}" if sport == "soccer" else f"{away} @ {home}"
     overrides: Dict[str, object] = {
         "llm_provider": provider,
         "deep_think_llm": deep_llm,
@@ -262,6 +306,9 @@ def run_game_wizard() -> Optional[WizardResult]:
         "max_debate_rounds": depth,
         "max_risk_rounds": depth,
     }
+    if sport == "soccer":
+        overrides["competition"] = competition
+        overrides["market_type"] = market_type
     return WizardResult(
         sport=sport,
         game_date=date,
@@ -273,4 +320,6 @@ def run_game_wizard() -> Optional[WizardResult]:
         deep_llm=deep_llm,
         quick_llm=quick_llm,
         config_overrides=overrides,
+        competition=competition,
+        market_type=market_type,
     )

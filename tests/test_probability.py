@@ -45,6 +45,55 @@ def test_devig_multi_zero_total():
     assert out == pytest.approx([1 / 3, 1 / 3, 1 / 3])
 
 
+def test_devig_3way_sums_to_one():
+    h, d, a = p.devig_3way(0.5, 0.3, 0.3)
+    assert h + d + a == pytest.approx(1.0)
+    assert h > a  # the 0.5 side stays the biggest probability
+
+
+def test_devig_3way_zero_total():
+    h, d, a = p.devig_3way(0.0, 0.0, 0.0)
+    assert (h, d, a) == pytest.approx((1 / 3, 1 / 3, 1 / 3))
+
+
+def test_kelly_3way_labels_and_edges():
+    legs = p.kelly_3way([0.50, 0.30, 0.20], [40, 28, 22])
+    assert [leg.label for leg in legs] == ["home", "draw", "away"]
+    assert legs[0].edge == pytest.approx(0.10)
+    assert legs[1].edge == pytest.approx(0.02)
+    assert legs[2].edge == pytest.approx(-0.02)
+    # Positive-edge legs get a stake; negative-edge legs do not.
+    assert legs[0].stake_pct > 0.0
+    assert legs[2].stake_pct == 0.0
+
+
+def test_best_leg_picks_largest_positive_edge():
+    leg = p.best_leg([0.50, 0.30, 0.20], [40, 28, 22])
+    assert leg is not None
+    assert leg.label == "home"
+    assert leg.edge == pytest.approx(0.10)
+
+
+def test_best_leg_can_pick_the_draw():
+    # Draw is the most underpriced leg here (0.34 est vs 0.25 implied).
+    leg = p.best_leg([0.40, 0.34, 0.26], [40, 25, 30])
+    assert leg is not None
+    assert leg.label == "draw"
+
+
+def test_best_leg_holds_when_no_edge_clears_band():
+    assert p.best_leg([0.40, 0.30, 0.30], [40, 30, 30]) is None
+
+
+def test_best_leg_respects_no_trade_band():
+    # A 2pp edge does NOT clear the default 3pp band → HOLD.
+    assert p.best_leg([0.42, 0.30, 0.28], [40, 30, 30]) is None
+    # But a wider band-free call surfaces it.
+    leg = p.best_leg([0.42, 0.30, 0.28], [40, 30, 30], no_trade_band=0.0)
+    assert leg is not None
+    assert leg.label == "home"
+
+
 def test_edge():
     assert p.edge(0.64, 0.58) == pytest.approx(0.06)
     assert p.edge(0.50, 0.58) == pytest.approx(-0.08)
@@ -88,6 +137,11 @@ def test_brier_multi():
     assert p.brier_multi([0.5, 0.3, 0.2], 0) == pytest.approx(0.38)
     # perfect prediction → 0
     assert p.brier_multi([1.0, 0.0, 0.0], 0) == pytest.approx(0.0)
+
+
+def test_brier_multi_draw_outcome():
+    # Settled result is the draw (index 1).
+    assert p.brier_multi([0.5, 0.3, 0.2], 1) == pytest.approx(0.78)
 
 
 def test_clamp_prob():

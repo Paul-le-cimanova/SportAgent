@@ -74,8 +74,11 @@ def assemble_complete_report(state: Dict[str, object]) -> str:
 
         winner, win_prob = parse_winner(final_rec)
         if winner:
+            from sportagent.sports.base import sport_icon
+
+            icon = sport_icon(str(state.get("sport", "nba")))
             parts.append(
-                f"## 🏀 Prediction: {winner} to win — {win_prob * 100:.0f}%"
+                f"## {icon} Prediction: {winner} to win — {win_prob * 100:.0f}%"
             )
             parts.append("")
     except Exception:  # noqa: BLE001 — headline is best-effort

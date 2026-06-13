@@ -14,7 +14,8 @@ Conventions:
 
 from __future__ import annotations
 
-from typing import Sequence, Tuple
+from dataclasses import dataclass
+from typing import Optional, Sequence, Tuple
 
 
 def implied_prob(price_cents: float) -> float:
@@ -70,6 +71,24 @@ def devig_multi(probs: Sequence[float]) -> list[float]:
     return [p / total for p in probs]
 
 
+def devig_3way(
+    p_home: float, p_draw: float, p_away: float
+) -> Tuple[float, float, float]:
+    """Remove vig from a 3-way soccer book (home/draw/away) → sum to 1.
+
+    Thin, explicitly-ordered wrapper over :func:`devig_multi` so soccer callers
+    keep the home/draw/away ordering unambiguous.
+
+    >>> h, d, a = devig_3way(0.5, 0.3, 0.3)
+    >>> round(h + d + a, 6)
+    1.0
+    >>> h > a  # the 0.5 side stays the biggest probability
+    True
+    """
+    h, d, a = devig_multi([p_home, p_draw, p_away])
+    return h, d, a
+
+
 def edge(estimate: float, implied: float) -> float:
     """Model probability minus market-implied probability.
 
@@ -117,6 +136,95 @@ def recommended_stake(
     """
     f = kelly_fraction(estimate, price_cents, cap=kelly_cap)
     return min(f, max_stake_pct)
+
+
+@dataclass
+class LegEdge:
+    """A single 3-way leg's edge evaluation (home, draw, or away).
+
+    ``label`` is one of ``"home"``/``"draw"``/``"away"``; ``estimate`` is the
+    model's true-probability estimate for that outcome; ``implied`` is the
+    contract's market-implied probability; ``edge`` is ``estimate - implied``;
+    ``stake_pct`` is the deterministic fractional-Kelly stake for that leg.
+    """
+
+    label: str
+    estimate: float
+    implied: float
+    edge: float
+    stake_pct: float
+
+
+def kelly_3way(
+    estimates: Sequence[float],
+    price_cents: Sequence[float],
+    labels: Sequence[str] = ("home", "draw", "away"),
+    kelly_cap: float = 0.25,
+    max_stake_pct: float = 0.05,
+) -> list[LegEdge]:
+    """Per-leg edge + capped-Kelly stake for each of the 3 soccer outcomes.
+
+    ``estimates`` is the model probability vector (home/draw/away, summing to
+    ~1); ``price_cents`` are the matching Kalshi YES contract prices in cents.
+    Each leg is sized independently with the same fractional/capped Kelly used
+    for 2-way contracts, so the draw is evaluated on equal footing with the two
+    win legs. Returns a ``LegEdge`` per outcome in the input order.
+
+    >>> legs = kelly_3way([0.50, 0.30, 0.20], [40, 28, 22])
+    >>> [l.label for l in legs]
+    ['home', 'draw', 'away']
+    >>> round(legs[0].edge, 4)
+    0.1
+    """
+    out: list[LegEdge] = []
+    for label, est, price in zip(labels, estimates, price_cents):
+        implied = implied_prob(price)
+        out.append(
+            LegEdge(
+                label=label,
+                estimate=float(est),
+                implied=implied,
+                edge=edge(est, implied),
+                stake_pct=recommended_stake(
+                    est, price, kelly_cap=kelly_cap, max_stake_pct=max_stake_pct
+                ),
+            )
+        )
+    return out
+
+
+def best_leg(
+    estimates: Sequence[float],
+    price_cents: Sequence[float],
+    labels: Sequence[str] = ("home", "draw", "away"),
+    no_trade_band: float = 0.03,
+    kelly_cap: float = 0.25,
+    max_stake_pct: float = 0.05,
+) -> Optional[LegEdge]:
+    """Pick the highest-positive-edge 3-way leg, or None (HOLD).
+
+    Compares each of home/draw/away's estimated probability against its contract
+    price and returns the leg with the largest positive edge — **including the
+    often-mispriced draw**. Returns ``None`` (a HOLD) when no leg's edge clears
+    ``no_trade_band``.
+
+    >>> leg = best_leg([0.50, 0.30, 0.20], [40, 28, 22])
+    >>> leg.label
+    'home'
+    >>> best_leg([0.40, 0.30, 0.30], [40, 30, 30]) is None  # all fairly priced
+    True
+    """
+    legs = kelly_3way(
+        estimates,
+        price_cents,
+        labels=labels,
+        kelly_cap=kelly_cap,
+        max_stake_pct=max_stake_pct,
+    )
+    candidates = [leg for leg in legs if leg.edge > no_trade_band]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda leg: leg.edge)
 
 
 def brier(estimate: float, outcome: int) -> float:

@@ -35,10 +35,14 @@ TOOL_CATEGORIES: Dict[str, str] = {
     "get_team_stats":      "team_stats",
     "get_h2h":             "team_stats",
     "get_recent_form":     "team_stats",
+    "get_soccer_recent_form": "team_stats",
+    "get_soccer_h2h":      "team_stats",
+    "get_team_xg":         "team_stats",
     # scores_standings
     "get_standings":       "scores_standings",
     "get_schedule":        "scores_standings",
     "get_rest_status":     "scores_standings",
+    "get_league_table":    "scores_standings",
     # injury_news
     "get_injury_news":     "injury_news",
     "get_lineup_news":     "injury_news",

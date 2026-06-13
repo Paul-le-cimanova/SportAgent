@@ -159,6 +159,76 @@ def render_edge_thesis(thesis: EdgeThesis) -> str:
     ])
 
 
+class ThreeWayEdgeThesis(BaseModel):
+    """Research Manager's 3-way (soccer) edge thesis — a probability vector.
+
+    Instead of one target-YES probability, soccer requires three estimates —
+    home win / draw / away win — that the deterministic ``probability.py`` layer
+    normalizes to sum to 1 and the Trader uses to pick the best-edge leg. The
+    LLM only estimates the three numbers; it never does the vector arithmetic.
+    """
+
+    prob_home: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Your committed estimate of the probability the HOME team wins, as a "
+            "decimal in [0, 1]. Together with prob_draw and prob_away this should "
+            "be a coherent vector (the code normalizes it to sum to 1)."
+        ),
+    )
+    prob_draw: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Your committed estimate of the probability the match is a DRAW, as a "
+            "decimal in [0, 1]. Do NOT default this to a residual — the draw is a "
+            "genuine outcome (commonly 0.22-0.30 in tight matches)."
+        ),
+    )
+    prob_away: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Your committed estimate of the probability the AWAY team wins, as a "
+            "decimal in [0, 1]."
+        ),
+    )
+    rationale: str = Field(
+        description=(
+            "Conversational synthesis of the bull/bear debate, ending with which "
+            "arguments carried the call. Ground claims in the analyst reports and "
+            "the verified-odds snapshot (which lists all three leg prices)."
+        ),
+    )
+    key_factors: List[str] = Field(
+        description=(
+            "The 3-6 highest-weight factors behind the vector (e.g. 'Home side "
+            "unbeaten in 6', 'both defenses strong → draw likely', 'away top "
+            "scorer suspended')."
+        ),
+    )
+
+
+def render_three_way_edge_thesis(thesis: ThreeWayEdgeThesis) -> str:
+    """Render a ``ThreeWayEdgeThesis`` to markdown (normalized vector)."""
+    from sportagent.core.agents.utils import probability as prob
+
+    h, d, a = prob.devig_3way(thesis.prob_home, thesis.prob_draw, thesis.prob_away)
+    factors = "\n".join(f"- {f}" for f in thesis.key_factors) or "- (none cited)"
+    return "\n".join([
+        "**3-Way Probability Vector (normalized to sum to 1):**",
+        f"- Home win: {h:.3f} ({h * 100:.1f}%)",
+        f"- Draw: {d:.3f} ({d * 100:.1f}%)",
+        f"- Away win: {a:.3f} ({a * 100:.1f}%)",
+        "",
+        f"**Rationale:** {thesis.rationale}",
+        "",
+        "**Key Factors:**",
+        factors,
+    ])
+
+
 # ---------------------------------------------------------------------------
 # Trader
 # ---------------------------------------------------------------------------
@@ -294,12 +364,18 @@ class FinalRecommendation(BaseModel):
     )
 
 
-def render_final_recommendation(rec: FinalRecommendation) -> str:
-    """Render a ``FinalRecommendation`` to markdown (winner-first headline)."""
+def render_final_recommendation(rec: FinalRecommendation, sport: str = "nba") -> str:
+    """Render a ``FinalRecommendation`` to markdown (winner-first headline).
+
+    ``sport`` selects the headline emoji (⚽ for soccer, 🏀 for NBA, etc.).
+    """
+    from sportagent.sports.base import sport_icon
+
     win_pct = rec.win_probability * 100
     loser_pct = 100 - win_pct
+    icon = sport_icon(sport)
     return "\n".join([
-        f"🏀 **PREDICTION: {rec.predicted_winner} win — {win_pct:.0f}%** "
+        f"{icon} **PREDICTION: {rec.predicted_winner} win — {win_pct:.0f}%** "
         f"(opponent {loser_pct:.0f}%)",
         f"**Confidence:** {rec.confidence.capitalize()}",
         "",

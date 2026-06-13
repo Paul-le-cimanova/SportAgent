@@ -250,6 +250,12 @@ def analyze(
     game_date: Optional[str] = typer.Option(
         None, "--game-date", help="Game date YYYY-MM-DD (picks the right-dated Kalshi market)."
     ),
+    competition: Optional[str] = typer.Option(
+        None, "--competition", help="Soccer only: competition key (e.g. soccer_epl, soccer_fifa_world_cup)."
+    ),
+    market_type: Optional[str] = typer.Option(
+        None, "--market-type", help="Soccer only: match | advancement | futures (default match)."
+    ),
     kalshi_env: Optional[str] = typer.Option(
         None, "--kalshi-env", help="Override Kalshi environment: demo|prod."
     ),
@@ -280,6 +286,10 @@ def analyze(
         config["deep_think_llm"] = deep_llm
     if quick_llm:
         config["quick_think_llm"] = quick_llm
+    if competition:
+        config["competition"] = competition
+    if market_type:
+        config["market_type"] = market_type
 
     console.print(
         Panel(
@@ -377,10 +387,13 @@ def _render_result(state: dict, recommendation: str) -> None:
 
     winner, win_prob = parse_winner(recommendation)
     if winner:
+        from sportagent.sports.base import sport_icon
+
+        icon = sport_icon(str(state.get("sport", "nba")))
         loser_pct = (1.0 - win_prob) * 100
         console.print(
             Panel(
-                f"🏀 [bold]{winner}[/bold] to win — "
+                f"{icon} [bold]{winner}[/bold] to win — "
                 f"[bold green]{win_prob * 100:.0f}%[/bold green] "
                 f"(opponent {loser_pct:.0f}%)",
                 title="Prediction",

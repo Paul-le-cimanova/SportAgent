@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import requests
@@ -565,7 +565,7 @@ def _season_elo_ratings(season: int) -> dict:
 
 def _current_season() -> int:
     """NBA season start year. Season starts in October; Jan-Sep → prior year."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return now.year if now.month >= 10 else now.year - 1
 
 

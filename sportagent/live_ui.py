@@ -85,6 +85,7 @@ _REPORT_KEYS: List[Tuple[str, str]] = [
 # Noisy loggers to silence during a Live session (expected fail-open chatter).
 _NOISY_LOGGERS = (
     "sportagent.sports.nba.stats",
+    "sportagent.sports.soccer.stats",
     "sportagent.core.dataflows.reddit",
     "sportagent.core.dataflows.kalshi",
     "sportagent.core.dataflows.odds_api",

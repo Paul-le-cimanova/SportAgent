@@ -41,7 +41,12 @@ from sportagent.core.agents import (
 )
 from sportagent.core.agents.utils.agent_utils import create_msg_delete
 from sportagent.core.agents.utils.game_state import GameState
-from sportagent.core.agents.utils.tools import NEWS_TOOLS, ODDS_TOOLS, STATS_TOOLS
+from sportagent.core.agents.utils.tools import (
+    NEWS_TOOLS,
+    ODDS_TOOLS,
+    STATS_TOOL_BY_NAME,
+    STATS_TOOLS,
+)
 from sportagent.core.graph.conditional_logic import (
     AGGRESSIVE,
     BEAR_RESEARCHER,
@@ -61,6 +66,26 @@ NEWS_ANALYST = "News/Injury Analyst"
 SENTIMENT_ANALYST = "Sentiment Analyst"
 
 
+def _resolve_stats_tools(stats_tools: Any):
+    """Resolve an adapter's stats-tool spec to a list of bound ``@tool`` objects.
+
+    ``stats_tools`` may be a list of tool-name strings (from the sport adapter's
+    ``stats_tools()``), an already-resolved list of tool objects, or ``None``.
+    Unknown names are skipped; an empty/None result falls back to ``STATS_TOOLS``.
+    """
+    if not stats_tools:
+        return STATS_TOOLS
+    resolved = []
+    for item in stats_tools:
+        if isinstance(item, str):
+            tool_obj = STATS_TOOL_BY_NAME.get(item)
+            if tool_obj is not None:
+                resolved.append(tool_obj)
+        else:
+            resolved.append(item)
+    return resolved or STATS_TOOLS
+
+
 class GraphSetup:
     """Builds + compiles the SportAgent ``StateGraph``."""
 
@@ -70,11 +95,15 @@ class GraphSetup:
         quick_llm: Any,
         conditional_logic: ConditionalLogic,
         key_factors_prompt: str = "",
+        stats_tools: Any = None,
     ):
         self.deep_llm = deep_llm
         self.quick_llm = quick_llm
         self.conditional_logic = conditional_logic
         self.key_factors_prompt = key_factors_prompt
+        # Resolve the sport adapter's stats-tool name list to @tool objects;
+        # fall back to the full (NBA) STATS_TOOLS when unset/empty/unknown.
+        self.stats_tools = _resolve_stats_tools(stats_tools)
 
     def setup_graph(self):
         """Construct the workflow graph (call ``.compile()`` on the result)."""
@@ -82,7 +111,9 @@ class GraphSetup:
 
         # --- Agent nodes -----------------------------------------------------
         odds_node = create_odds_analyst(self.quick_llm)
-        stats_node = create_stats_analyst(self.quick_llm, self.key_factors_prompt)
+        stats_node = create_stats_analyst(
+            self.quick_llm, self.key_factors_prompt, tools=self.stats_tools
+        )
         news_node = create_news_injury_analyst(self.quick_llm)
         sentiment_node = create_sentiment_analyst(self.quick_llm)
 
@@ -101,7 +132,7 @@ class GraphSetup:
         # (analyst_name, agent_node, tools, tool_node_name, clear_node_name)
         tool_analysts = [
             (ODDS_ANALYST, odds_node, ODDS_TOOLS, "tools_odds", "Msg Clear Odds"),
-            (STATS_ANALYST, stats_node, STATS_TOOLS, "tools_stats", "Msg Clear Stats"),
+            (STATS_ANALYST, stats_node, self.stats_tools, "tools_stats", "Msg Clear Stats"),
             (NEWS_ANALYST, news_node, NEWS_TOOLS, "tools_news", "Msg Clear News"),
         ]
         for name, node, tools, tool_node, clear_node in tool_analysts:

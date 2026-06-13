@@ -58,14 +58,50 @@ def _parse_tag_fields(fields: List[str]) -> Dict[str, Any]:
     return out
 
 
+# 3-way settlement: map the realized soccer outcome to the index used by
+# probability.brier_multi (home/draw/away).
+_THREE_WAY_INDEX = {"home": 0, "draw": 1, "away": 2}
+
+
 def _won(action: str, result: str) -> Optional[bool]:
-    """Did the recommended side hit? None for HOLD (calibration-only)."""
+    """Did the recommended side hit? None for HOLD (calibration-only).
+
+    Handles both 2-way (yes/no) and 3-way (home/draw/away) settlement: for a
+    3-way market the recommendation names the leg (e.g. "BUY YES on the DRAW
+    leg"), so a hit is when the settled outcome label appears in the action.
+    """
     a = action.strip().upper()
+    r = result.strip().lower()
+    if r in _THREE_WAY_INDEX:
+        # 3-way: the chosen leg is encoded in the action text.
+        if "HOLD" in a:
+            return None
+        return r in a.lower()
     if a == "BUY YES":
         return result == "yes"
     if a == "BUY NO":
         return result == "no"
     return None  # HOLD
+
+
+def _three_way_brier(raw_entry: str, outcome: str) -> Optional[float]:
+    """Multi-class Brier for a 3-way settlement, or None if unparseable.
+
+    Reads the home/draw/away probability vector the Trader/Research Manager
+    rendered into the entry and scores it against the realized outcome index.
+    """
+    idx = _THREE_WAY_INDEX.get(outcome.strip().lower())
+    if idx is None:
+        return None
+    vec = []
+    for label in ("Home win", "Draw", "Away win"):
+        m = re.search(rf"{label}:\s*([01]\.[0-9]+)", raw_entry)
+        if not m:
+            return None
+        vec.append(float(m.group(1)))
+    total = sum(vec) or 1.0
+    vec = [v / total for v in vec]
+    return prob.brier_multi(vec, idx)
 
 
 def _build_resolved_tag(meta: Dict[str, Any], result: str, brier: float) -> str:
@@ -101,14 +137,26 @@ def resolve_pending_entries(
 
         market = kalshi.get_market(ticker, config)
         result = kalshi.extract_result(market)
-        if result is None:
+        raw = item.get("raw", "")
+        # 3-way soccer entries carry a home/draw/away vector; detect + score
+        # them with the multi-class Brier when the market exposes a 3-way result.
+        three_way_result = _extract_three_way_result(market, raw)
+        if result is None and three_way_result is None:
             # Unsettled or unavailable — leave pending for a later pass.
             continue
 
         meta = _parse_tag_fields(item.get("fields", []))
-        outcome = 1.0 if result == "yes" else 0.0
-        est = meta.get("estimated_probability", 0.5)
-        brier_score = prob.brier(est, outcome)
+        if three_way_result is not None:
+            result = three_way_result
+            brier_score = _three_way_brier(raw, three_way_result)
+            if brier_score is None:
+                # Fall back to the binary scoring path on a parse miss.
+                outcome = 1.0 if result in ("yes", "home") else 0.0
+                brier_score = prob.brier(meta.get("estimated_probability", 0.5), outcome)
+        else:
+            outcome = 1.0 if result == "yes" else 0.0
+            est = meta.get("estimated_probability", 0.5)
+            brier_score = prob.brier(est, outcome)
 
         reflection = _generate_reflection(
             quick_llm, item.get("raw", ""), meta, result, brier_score
@@ -120,6 +168,33 @@ def resolve_pending_entries(
             resolved_count += 1
 
     return resolved_count
+
+
+def _extract_three_way_result(market: Dict[str, Any], raw_entry: str) -> Optional[str]:
+    """Return a 3-way settled outcome (home/draw/away) or None.
+
+    Only applies to entries that carry a 3-way probability vector (so 2-way
+    markets keep their existing yes/no path untouched). The realized outcome is
+    read from the Kalshi market's ``result_sub_title``/``result`` where it names
+    home/draw/away; falls back to None when the market is unsettled.
+    """
+    if "Home win:" not in raw_entry or "Draw:" not in raw_entry:
+        return None
+    if not market or "error" in market:
+        return None
+    m = market.get("market", market)
+    text = " ".join(
+        str(m.get(k, "")) for k in ("result_sub_title", "result", "title")
+    ).lower()
+    if "draw" in text or "tie" in text:
+        return "draw"
+    # When the home contract settled YES it's a home win; NO → away win.
+    res = m.get("result")
+    if res == "yes":
+        return "home"
+    if res == "no":
+        return "away"
+    return None
 
 
 def _generate_reflection(

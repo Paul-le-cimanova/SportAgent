@@ -120,6 +120,37 @@ def get_elo_winprob(home_team: str, away_team: str, season: Optional[int] = None
     return str(route_to_vendor("get_elo_winprob", home_team, away_team, season))
 
 
+# --- Soccer Stats Analyst tools ----------------------------------------------
+
+
+@tool
+def get_team_xg(team: str, competition: str = "", last_n: int = 5) -> str:
+    """Get a soccer team's xG-grounded form (xG for/against per game) — the single best soccer signal.
+
+    A real aggregated expected-goals read; anchor the three-way probabilities to
+    the net-xG gap rather than inventing an xG model.
+    """
+    return str(route_to_vendor("get_team_xg", team, competition, last_n))
+
+
+@tool
+def get_league_table(competition: str = "", season: Optional[int] = None) -> str:
+    """Get the soccer group-stage / league standings (points, W-D-L, goal difference)."""
+    return str(route_to_vendor("get_league_table", competition, season))
+
+
+@tool
+def get_soccer_recent_form(team: str, competition: str = "", n_matches: int = 5) -> str:
+    """Get a soccer team's last-N completed results (W/D/L with scorelines)."""
+    return str(route_to_vendor("get_soccer_recent_form", team, competition, n_matches))
+
+
+@tool
+def get_soccer_h2h(team_a: str, team_b: str, competition: str = "", limit: int = 5) -> str:
+    """Get recent head-to-head results between two soccer nations/clubs."""
+    return str(route_to_vendor("get_soccer_h2h", team_a, team_b, competition, limit))
+
+
 # --- News/Injury Analyst tools -----------------------------------------------
 
 
@@ -151,6 +182,7 @@ NEWS_TOOLS = [get_injury_news, get_lineup_news]
 
 # Lookup by tool method name, for adapter-driven stats-tool selection.
 STATS_TOOL_BY_NAME = {
+    # NBA
     "get_team_stats": get_team_stats,
     "get_recent_form": get_recent_form,
     "get_h2h": get_h2h,
@@ -158,4 +190,9 @@ STATS_TOOL_BY_NAME = {
     "get_rest_status": get_rest_status,
     "get_four_factors": get_four_factors,
     "get_elo_winprob": get_elo_winprob,
+    # Soccer
+    "get_team_xg": get_team_xg,
+    "get_league_table": get_league_table,
+    "get_soccer_recent_form": get_soccer_recent_form,
+    "get_soccer_h2h": get_soccer_h2h,
 }

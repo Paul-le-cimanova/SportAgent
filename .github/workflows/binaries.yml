@@ -24,6 +24,76 @@ jobs:
           python-version: "3.13"
       - run: pip install -e . && pip install pyinstaller
       - run: pyinstaller --onefile --name ${{ matrix.artifact }} main.py
+
+      # --- Package for distribution -------------------------------------
+      # The PyInstaller output is a bare, extensionless CLI executable. If a
+      # user double-clicks the raw file in Finder/Explorer it is shown as
+      # text (the Mach-O/PE bytes) instead of running, and macOS Gatekeeper
+      # quarantines unsigned downloads. So we ship a ZIP that contains the
+      # binary + a double-clickable launcher that opens a terminal and runs
+      # the interactive wizard.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          BIN="${{ matrix.artifact }}"
+          STAGE="pkg/$BIN"
+          mkdir -p "$STAGE"
+          cp "dist/$BIN" "$STAGE/sportagent"
+          chmod +x "$STAGE/sportagent"
+          # Double-clickable launcher: opens Terminal, clears the quarantine
+          # flag on first run, then launches the CLI from its own folder.
+          cat > "$STAGE/Launch SportAgent.command" <<'EOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          xattr -d com.apple.quarantine ./sportagent 2>/dev/null || true
+          chmod +x ./sportagent 2>/dev/null || true
+          ./sportagent "$@"
+          EOF
+          chmod +x "$STAGE/Launch SportAgent.command"
+          cat > "$STAGE/README.txt" <<'EOF'
+          SportAgent (macOS)
+
+          This is a command-line app. Easiest way to run it:
+            1. Double-click "Launch SportAgent.command".
+               (If macOS blocks it: right-click -> Open -> Open.)
+
+          Or from Terminal, in this folder:
+            xattr -dr com.apple.quarantine .
+            ./sportagent
+
+          The bare "sportagent" file is a CLI executable — double-clicking it
+          directly in Finder will just show its raw bytes, which is expected.
+          EOF
+          ( cd pkg && zip -r "../dist/$BIN.zip" "$BIN" )
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "${{ matrix.artifact }}"
+          $stage = "pkg/$bin"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "dist/$bin.exe" "$stage/sportagent.exe"
+          # Double-clickable launcher that keeps the console window open.
+          @"
+          @echo off
+          cd /d "%~dp0"
+          sportagent.exe %*
+          echo.
+          pause
+          "@ | Set-Content -Encoding ascii "$stage/Launch SportAgent.bat"
+          @"
+          SportAgent (Windows)
+
+          Double-click "Launch SportAgent.bat" to run the app (it keeps the
+          window open). You can also run sportagent.exe from a terminal.
+
+          SmartScreen may warn about an unknown publisher (the binary is
+          unsigned): click "More info" -> "Run anyway".
+          "@ | Set-Content -Encoding ascii "$stage/README.txt"
+          Compress-Archive -Path "$stage" -DestinationPath "dist/$bin.zip" -Force
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/${{ matrix.artifact }}*
+          files: dist/${{ matrix.artifact }}.zip

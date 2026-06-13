@@ -204,11 +204,20 @@ class SportAgentGraph:
             key_factors = adapter.key_factors_prompt()
         except Exception as exc:  # noqa: BLE001
             logger.warning("key_factors_prompt failed: %s", exc)
+        # The sport adapter declares which stats tools its analyst should bind
+        # (e.g. soccer's xG/league-table tools vs NBA's four-factors/Elo). Fail
+        # open to None so GraphSetup falls back to the default NBA STATS_TOOLS.
+        stats_tools = None
+        try:
+            stats_tools = adapter.stats_tools()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("stats_tools failed: %s", exc)
         setup = GraphSetup(
             deep_llm=self.deep_llm,
             quick_llm=self.quick_llm,
             conditional_logic=self.conditional_logic,
             key_factors_prompt=key_factors,
+            stats_tools=stats_tools,
         )
         workflow = setup.setup_graph()
         return workflow.compile()
@@ -238,6 +247,8 @@ class SportAgentGraph:
                 away_team=getattr(market_ref, "away_team", ""),
                 sport_key=sportsbook_key,
                 config=self.config,
+                outcome_structure=getattr(market_ref, "outcome_structure", "two_way"),
+                contracts=getattr(market_ref, "contracts", {}) or {},
             )
         except Exception as exc:  # noqa: BLE001 — fail open
             logger.warning("Verified-odds snapshot failed: %s", exc)

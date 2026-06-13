@@ -93,8 +93,12 @@ def create_decision_manager(llm):
                 "recommended stake."
             )),
         ]
+        sport = state.get("sport", "nba")
         markdown, _parsed = invoke_structured_or_freetext(
-            llm, FinalRecommendation, messages, render_final_recommendation
+            llm,
+            FinalRecommendation,
+            messages,
+            lambda rec: render_final_recommendation(rec, sport),
         )
 
         new_risk = dict(risk_debate)

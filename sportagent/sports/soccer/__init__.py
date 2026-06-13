@@ -1,0 +1,1 @@
+"""Soccer / World Cup adapter pack: 3-way market resolver, stats, key factors."""

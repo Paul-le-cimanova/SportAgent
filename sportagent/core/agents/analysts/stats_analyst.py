@@ -34,13 +34,15 @@ _SYSTEM = (
 )
 
 
-def create_stats_analyst(llm, key_factors_prompt: str = ""):
+def create_stats_analyst(llm, key_factors_prompt: str = "", tools=None):
     """Create the Stats Analyst node (quick tier, tool-bound).
 
     ``key_factors_prompt`` comes from the sport adapter (NBA/NFL/...) so the
-    analyst weighs what matters in that sport.
+    analyst weighs what matters in that sport. ``tools`` is the sport-specific
+    stats toolset (from the adapter's ``stats_tools()``); falls back to the NBA
+    ``STATS_TOOLS`` when not supplied.
     """
-    tools = STATS_TOOLS
+    tools = tools or STATS_TOOLS
     prompt = ChatPromptTemplate.from_messages([
         ("system", _SYSTEM),
         MessagesPlaceholder(variable_name="messages"),
